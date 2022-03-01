@@ -1,0 +1,13 @@
+sites:
+  - name: site1
+    dhcp_server_type: kea
+    dhcp_server: 192.168.1.1
+    dhcp_api_port: 8000
+    community: public
+  - name: site2
+    dhcp_server_type: ros
+    dhcp_server: 192.168.2.1
+    login: user
+    password: password
+    dhcp_api_port: 8888
+    community: public2
