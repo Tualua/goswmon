@@ -1,0 +1,15 @@
+[Unit]
+Description=goswmon
+After=syslog.target network.target
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=30s
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/goswmon/
+ExecStart=/var/www/goswmon/goswmon
+
+[Install]
+WantedBy=multi-user.target

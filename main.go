@@ -1,59 +1,165 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"log"
-	// g "github.com/gosnmp/gosnmp"
+	"net/http"
+	"os"
+	"os/signal"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/gorilla/handlers"
+	"github.com/gorilla/mux"
 )
 
-func main() {
+type Site struct {
+	Name            string `yaml:"name"`
+	Prefix          string `yaml:"prefix"`
+	Offset          int    `yaml:"offset"`
+	DhcpServerType  string `yaml:"dhcp_server_type"`
+	DhcpServer      string `yaml:"dhcp_server"`
+	DhcpApiPort     int    `yaml:"dhcp_api_port"`
+	Community       string `yaml:"community"`
+	DhcpApiLogin    string `yaml:"login"`
+	DhcpApiPassword string `yaml:"password"`
+}
+
+type NbElement struct {
+	Name string
+	ID   int64
+}
+
+type NbList struct {
+	Elements []NbElement
+}
+
+func loggingMiddleware(next http.Handler) http.Handler {
+	return handlers.CombinedLoggingHandler(os.Stdout, next)
+}
+
+func run(ctx context.Context) (err error) {
 	var (
-		err error
-		// result []g.SnmpPDU
-		cfg        *Config
-		dhcpLeases DhcpLeases
+		cfg *Config
 	)
-	/*
-		g.Default.Target = "172.18.17.11"
-		if err = g.Default.Connect(); err != nil {
-			log.Fatalf("Connection error %v", err)
-		}
-		defer g.Default.Conn.Close()
-
-		oid := "1.3.6.1.2.1.31.1.1.1.1"
-
-		if result, err = g.Default.BulkWalkAll(oid); err != nil {
-			log.Fatalf("BulkWalk error %v", err)
-		} else {
-			for _, v := range result {
-				switch v.Type {
-				case g.OctetString:
-					fmt.Printf("string: %s\n", string(v.Value.([]byte)))
-				default:
-					fmt.Printf("number: %d\n", g.ToBigInt(v.Value))
-				}
-			}
-		}
-	*/
 	if cfg, err = NewConfig("config.yaml"); err != nil {
 		log.Fatal(err)
 	} else {
-		ConnectStringROS := fmt.Sprintf("%s:%d", cfg.Sites[1].DhcpServer, cfg.Sites[1].DhcpApiPort)
-		if connROS, err := ConnectRos(ConnectStringROS, cfg.Sites[1].DhcpApiLogin, cfg.Sites[1].DhcpApiPassword); err != nil {
+		router := mux.NewRouter().StrictSlash(true)
+		router.Use(loggingMiddleware)
+		addrString := cfg.Service.Listen + ":" + cfg.Service.Port
+		c := NbNewClient(cfg.Netbox.Address, cfg.Netbox.Token)
+
+		router.HandleFunc("/sites", GetSitesList(c))
+		router.HandleFunc("/sites/{siteid:[0-9]+}", GetRacksList(c, cfg))
+		router.HandleFunc("/rack/{rackid:[0-9]+}", GetDevicesInfo(c, cfg))
+		router.HandleFunc("/rack/{rackid:[0-9]+}/csv", GetDevicesInfoCsv(c, cfg))
+		router.HandleFunc("/api/minerinfo/", GetMinerInfo)
+
+		srv := &http.Server{
+			Addr:    addrString,
+			Handler: router,
+		}
+		go func() {
+			if err = srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Fatalf("listen:%+s\n", err)
+			}
+		}()
+		log.Printf("server started")
+		<-ctx.Done()
+
+		log.Printf("server stopped")
+		ctxShutDown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer func() {
+			cancel()
+		}()
+
+		if err = srv.Shutdown(ctxShutDown); err != nil {
+			log.Fatalf("server Shutdown Failed:%+s", err)
+		}
+
+		log.Printf("server exited properly")
+
+		if err == http.ErrServerClosed {
+			err = nil
+		}
+
+	}
+	return
+}
+
+func (s *Site) GetSiteDhcpLeases() (leases DhcpLeases, err error) {
+	leases = make(DhcpLeases)
+	switch s.DhcpServerType {
+	case "kea":
+		var KeaLeases []KeaDhcpLease
+		if KeaLeases, err = KeaGetLeasesDhcp4(*s); err != nil {
+			log.Println(err.Error())
+		} else {
+			for _, l := range KeaLeases {
+				if l.State == 0 {
+					leases[strings.ToUpper(l.HwAddress)] = l.IpAddress
+				}
+			}
+		}
+	case "ros":
+		var RosLeases []RosDhcpLease
+		ConnectStringROS := fmt.Sprintf("%s:%d", s.DhcpServer, s.DhcpApiPort)
+		if connROS, err := ConnectRos(ConnectStringROS, s.DhcpApiLogin, s.DhcpApiPassword); err != nil {
 			log.Println(err)
 		} else {
 			defer connROS.Close()
-			if dhcpLeases, err = GetLeasesROS(connROS); err != nil {
+			if RosLeases, err = GetLeasesROS(connROS); err != nil {
 				log.Println(err)
 			} else {
-				for _, v := range dhcpLeases {
-					if v.Status == "bound" {
-						log.Println(v)
+				for _, l := range RosLeases {
+					if l.Status == "bound" {
+						leases[strings.ToUpper(l.HwAddress)] = l.IpAddress
 					}
 				}
 			}
-
 		}
+	default:
+		err = errors.New("unknown DHCP server type")
+	}
 
+	return
+}
+
+func (s *Site) GetSwitchFdb(swip string, swtype string) (Fdb FdbEntries) {
+	switch swtype {
+	case "cisco":
+		Fdb = GetFdbCisco(swip, s.Community)
+	case "d-link":
+		Fdb = GetFdbDlink(swip, s.Community)
+	}
+	sort.Slice(Fdb.Fdb, func(i, j int) bool {
+		return Fdb.Fdb[i].PortNum < Fdb.Fdb[j].PortNum
+	})
+	return
+}
+
+func init() {
+
+}
+
+func main() {
+
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	go func() {
+		oscall := <-c
+		log.Printf("system call:%+v", oscall)
+		cancel()
+	}()
+
+	if err := run(ctx); err != nil {
+		log.Printf("failed to serve:+%v\n", err)
 	}
 }

@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <!-- Required meta tags -->
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <script src="https://kit.fontawesome.com/d27bb5ad29.js" crossorigin="anonymous"></script>
+        <link rel="stylesheet" href="https://www.w3schools.com/w3css/4/w3.css">
+        <link rel="stylesheet" href="https://www.w3schools.com/lib/w3-theme-blue-grey.css">
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+        <title>Devices List</title>
+    </head>
+    <body class="w3-theme-l4">
+        <div class="w3-container">
+            <h2>Devices</h2>
+            <h6>Site: {{.Site}}</h6>
+            <h6>Rack: {{.Rack}}</h6>
+            <h6>Switch: {{.Switch}}</h6>
+           <table class="w3-table-all">
+            <tr>
+                <th>Port</th>
+                <th>Port Name</th>
+                <th>IP Address</th>
+                <th>MAC Address</th>
+                <th>VLAN</th>
+                <th>Model</th>
+                <th>Status</th>
+                <th>Pool 1</th>
+                <th>Worker 1</th>
+            </tr>
+            {{range .Devices}}
+            <tr>
+                <td> {{if .Active}}
+                    <i class="fas fa-network-wired" style="color:green"></i>
+                    {{else}}
+                    <i class="fas fa-network-wired" style="color:red"></i>
+                    {{end}}
+                     {{.PortNum}}</td>
+                <td>{{.PortName}}</td>
+                <td><a href="http://{{.IpAddress}}" target="_blank">{{.IpAddress}}</a></td>
+                <td>{{.MacAddress}}</td>
+                <td>{{.Vlan}}</td>
+                <td>{{.Model}}</td>
+                <td>{{.Status}}</td>
+                <td>{{.Pool1}}</td>
+                <td>{{.Worker1}}</td>
+            </tr>
+            {{end}}
+           </table>
+        </div>
+    </body>
+</html>

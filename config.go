@@ -1,21 +1,37 @@
 package main
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/go-yaml/yaml"
 )
 
 type Config struct {
-	Sites []struct {
-		Name            string `yaml:"name"`
-		DhcpServerType  string `yaml:"dhcp_server_type"`
-		DhcpServer      string `yaml:"dhcp_server"`
-		DhcpApiPort     int    `yaml:"dhcp_api_port"`
-		Community       string `yaml:"community"`
-		DhcpApiLogin    string `yaml:"login"`
-		DhcpApiPassword string `yaml:"password"`
-	} `yaml:"sites"`
+	Service struct {
+		Listen string `yaml:"listen"`
+		Port   string `yaml:"port"`
+	} `yaml:"service"`
+	Netbox struct {
+		Address    string `yaml:"address"`
+		Token      string `yaml:"token"`
+		SwitchRole string `yaml:"switchrole"`
+		RackRole   string `yaml:"rackrole"`
+	} `yaml:"netbox"`
+	Sites []Site `yaml:"sites"`
+}
+
+func (s *Config) FindByName(name string) (num int, err error) {
+	num = -1
+	for i, v := range s.Sites {
+		if v.Name == name {
+			num = i
+		}
+	}
+	if num == -1 {
+		err = fmt.Errorf("site %s not found", name)
+	}
+	return
 }
 
 func NewConfig(configPath string) (*Config, error) {

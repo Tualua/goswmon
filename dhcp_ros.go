@@ -8,10 +8,9 @@ import (
 	"github.com/go-routeros/routeros"
 )
 
-type DhcpLeases map[string]DhcpLease
-
-type DhcpLease struct {
-	IPAddress string
+type RosDhcpLease struct {
+	HwAddress string
+	IpAddress string
 	Hostname  string
 	Status    string
 	LastSeen  string
@@ -25,12 +24,11 @@ func ConnectRos(address string, username string, password string) (*routeros.Cli
 	return routeros.DialTLS(address, username, password, &tlsConfig)
 }
 
-func GetLeasesROS(ros *routeros.Client) (res DhcpLeases, err error) {
+func GetLeasesROS(ros *routeros.Client) (res []RosDhcpLease, err error) {
 	var (
 		rosCommand = "/ip/dhcp-server/lease/print"
 		lease      map[string]string
 	)
-	res = make(DhcpLeases)
 	if r, err := ros.RunArgs(strings.Split(rosCommand, " ")); err != nil {
 		log.Println(err)
 	} else {
@@ -39,7 +37,9 @@ func GetLeasesROS(ros *routeros.Client) (res DhcpLeases, err error) {
 			for _, j := range v.List {
 				lease[j.Key] = j.Value
 			}
-			res[lease["mac-address"]] = DhcpLease{IPAddress: lease["address"], Hostname: lease["host-name"], Status: lease["status"], LastSeen: lease["last-seen"]}
+			res = append(
+				res,
+				RosDhcpLease{HwAddress: lease["mac-address"], IpAddress: lease["address"], Hostname: lease["host-name"], Status: lease["status"], LastSeen: lease["last-seen"]})
 		}
 	}
 
